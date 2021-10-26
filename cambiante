@@ -137,10 +137,11 @@ org_approval, air, history):
 
 
     )
+
     pending_labelbooking = df.select(['AC_REGISTR','ACTION_DATE','ATA','EVENT_PERFNO_I','DESCRIPTION','PARTNO_ON','SERIALNO_ON','COMP_ON_LOC', 'LABEL',
     'AC_POSITION', 'FIN_MATCH','PARTNO_OFF','SERIALNO_OFF','COMP_OFF_LOC','CLOSING_DATE','TLB','WPNO_I', 'STA','MRO',
     'OPEN_QUERY','GROUP_ASSIGNED','USER_ASSIGNED','AIR_AC_REGISTR','AIR_PARTNO','AIR_SERIALNO','AIR_FIN','PARTNO','SERIALNO','DEL_DATE']).where(F.col('LABEL') == 'PENDING').distinct().orderBy('ACTION_DATE')
 
-
+    pending_labelbooking = pending_labelbooking.withColumnRenamed('EVENT_PERFNO_I','WORKORDER')
     
     return pending_labelbooking
