@@ -1,0 +1,143 @@
+from transforms.api import transform_df, Input, Output
+import numpy as np
+import pandas as pd
+import pyspark.sql.functions as F
+from pyspark.sql import Window
+from pyspark.sql.types import StringType,BooleanType,DateType
+
+@transform_df(
+    Output("/Users/johan.jaramillo@vueling.com/datasets/Pending_labelbooking"),
+    wo_text_action=Input("ri.foundry.main.dataset.1dffdb55-cc54-482e-a636-4992386f7cfc"),
+    wo_header=Input("ri.foundry.main.dataset.1609fd84-eeb4-4b11-bfa8-0148d39df869"),
+    workstep_link=Input("ri.foundry.main.dataset.aaaf431e-5264-441a-ac63-344c7378cb63"),
+    wo_text_description=Input("ri.foundry.main.dataset.aac2d39b-5588-463a-b23c-e898b62b0ebd"),
+    db_link=Input("ri.foundry.main.dataset.b7903f82-b7ac-4f81-b66d-896ee07cb4cf"),
+    wp_assignment=Input("ri.foundry.main.dataset.cfa7f5e3-960e-4914-945f-80312973910e"),
+    aircraft=Input("ri.foundry.main.dataset.34097bb0-520e-433e-9968-c2df7dba3645"),
+    part=Input("ri.foundry.main.dataset.e4fb910f-6f6f-4fec-8c0e-fc3ad4cb52a2"),
+    rotables=Input("ri.foundry.main.dataset.47e6533a-6430-455a-82bc-0a3cf9145761"),
+    tech_query=Input("ri.foundry.main.dataset.62dc502e-a130-446d-bee9-ef4a3156c621"),
+    tech_query_ac=Input("ri.foundry.main.dataset.69711147-b2ec-4703-b246-55167243519f"),
+    wo_part_on_off=Input("ri.foundry.main.dataset.396fcc52-cf47-4ef5-a0e7-08c8afd67038"),
+    address=Input("ri.foundry.main.dataset.9b254e68-4756-498f-b1ce-fccc21759068"),
+    org_approval=Input("ri.foundry.main.dataset.5ae7eec9-66a5-4935-8468-d1c6a8e7a43c"),
+    air =Input("/Vueling/Team - Maintenance/Technical Services/Systems/Excels and Datasets/AIR_oct21_DS"),
+    history=Input("ri.foundry.main.dataset.7b5a3183-fbdf-4832-b8ed-5d8472978636")
+)
+
+def compute(wo_text_action, wo_header, workstep_link, wo_text_description, db_link, wp_assignment,aircraft, part,rotables,tech_query,tech_query_ac,wo_part_on_off, address,
+org_approval, air, history):
+    
+    #Windows
+
+    w1 = Window.partitionBy('PSN')
+    #TABLES DEFINITION
+    wta = wo_text_action.select(['ACTIONNO_I', 'EVENT_PERFNO_I', 'TEXT', 'ACTION_DATE', 'SIGN_PERFORMED', 'SIGN_INSPECTED','SIGN_DOUBLE_INSPECTED', 'WORKSTEP_LINKNO_I']).distinct()
+    wta = wta.withColumnRenamed('TEXT', 'ACTION_TEXT')
+    wpoo = wo_part_on_off.select(['EVENT_PERFNO_I','ACTIONNO_I','PARTNO','SERIALNO','LABELNO','AC_POSITION','PARTNO_OFF','SERIALNO_OFF','RELEASENO','MUTATOR','MUTATION']).distinct()
+    wpoo = wpoo.withColumnRenamed('PARTNO','PARTNO_ON')\
+        .withColumnRenamed('SERIALNO','SERIALNO_ON')
+       
+    wsl = workstep_link.select(['WORKSTEP_LINKNO_I','EVENT_PERFNO_I','SEQUENCENO','DESCNO_I', 'WORKSTEP_STATE']).distinct()
+    wh = wo_header.select(['EVENT_PERFNO_I','ATA_CHAPTER','AC_REGISTR','CLOSING_DATE','APPROVALNO_I','RELEASE_STATION']).distinct()
+    wh = wh.withColumn('RELEASE_STATION', F.substring('RELEASE_STATION',1,3))
+    wh = wh.withColumnRenamed('RELEASE_STATION', 'STA')
+    wh = wh.withColumn('ATA_CHAPTER', F.substring('ATA_CHAPTER',1,2))
+    wh = wh.withColumnRenamed('ATA_CHAPTER', 'ATA')
+    wtd = wo_text_description.select(['DESCNO_I', 'TEXT','HEADER']).distinct()
+    wtd = wtd.withColumnRenamed('TEXT', 'DESCRIPTION_TEXT')
+    dbl = db_link.select(['SOURCE_PK', 'DESCRIPTION','REF_TYPE']).where(F.col('REF_TYPE') == 'TLB')
+    dbl = dbl.withColumnRenamed('DESCRIPTION', 'TLB')
+    wpa = wp_assignment.select(['EVENT_PERFNO_I','WPNO_I'])
+    a = aircraft.select(['AC_REGISTR', 'AIRCRAFTNO_I', 'SERIALNO','AC_TYP', 'AC_SUBTYPE', 'AC_MODEL'])
+    a = a.withColumnRenamed('SERIALNO','MSN')
+    p = part.select(['PARTNO','DESCRIPTION','MAT_CLASS'])
+    #r_on = rotables.select(['AC_REGISTR','PARTNO','SERIALNO','LOCATION','PSN','LOCATIONNO_I','CONDITION','ROTABLE_STATUS','DEL_DATE'])
+    r_on = rotables.selectExpr('AC_REGISTR as R_ON_AC_REGISTR','PARTNO AS R_ON_PARTNO','SERIALNO AS R_ON_SERIALNO',
+    'LOCATION AS R_ON_LOCATION','PSN AS R_ON_PSN','LOCATIONNO_I AS R_ON_LOCATIONNO_I','CONDITION AS R_ON_CONDITION', 'DATE_INST AS R_ON_DATE_INST',
+    'ROTABLE_STATUS AS R_ON_ROTABLE_STATUS',    'DEL_DATE AS R_ON_DEL_DATE')
+    r_off = rotables.selectExpr('AC_REGISTR as R_OFF_AC_REGISTR','PARTNO AS R_OFF_PARTNO','SERIALNO AS R_OFF_SERIALNO','DATE_INST AS R_OFF_DATE_INST',
+    'LOCATION AS R_OFF_LOCATION','PSN AS R_OFF_PSN','LOCATIONNO_I AS R_OFF_LOCATIONNO_I','CONDITION AS R_OFF_CONDITION',
+    'ROTABLE_STATUS AS R_OFF_ROTABLE_STATUS',    'DEL_DATE AS R_OFF_DEL_DATE')
+
+    address = address.select(['ADDRESS_I','VENDOR','NAME']).distinct()
+    address = address.withColumnRenamed('VENDOR','MRO')
+    org_approval = org_approval.select(['APPROVALNO_I','MAIN_ADDRESS_I']).distinct()
+    tq = tech_query.select(['INTERRUPTION_REASON', 'QUERYNO_I','ASSIGNED_TO','ASSIGNED_TO_GROUP','REF_KEY','REF_TYPE', 'STATUS']).where((F.col('REF_TYPE') 
+    == 'AC_INT') & (F.col('STATUS').isin([1,2,4])) ).distinct()
+
+    tqa = tech_query_ac.select(['QUERYNO_I','EVENT_PERFNO_I']).distinct()
+    air = air.select(['AIR_AC_REGISTR','AIR_PARTNO','AIR_SERIALNO','AIR_FIN']).distinct()
+    h = history.select(['PSN','PARTNO','SERIALNO','DEL_DATE','VM']).where(F.col('VM').isin(['YE','YA','EX','D','DE'])).distinct()
+    h = h.withColumn('Max_date', F.max('DEL_DATE').over(w1)).where(F.col('DEL_DATE') == F.col('Max_date')).drop('Max_date').orderBy(F.col('DEL_DATE'), 
+    ascending=False)
+
+    #JOINS
+    df = wpoo.join(wta, ['ACTIONNO_I', 'EVENT_PERFNO_I'], 'inner')
+    df = df.join(wh,['EVENT_PERFNO_I'], 'left')
+    df = df.join(wsl,['WORKSTEP_LINKNO_I','EVENT_PERFNO_I'], 'inner')  #PONER INNER AL FINAL
+    df = df.join(wtd,['DESCNO_I'], 'inner')
+    df = df.join(dbl, (F.col('ACTIONNO_I').cast(StringType()) == F.col('SOURCE_PK')) | (F.col('DESCNO_I').cast(StringType()) == F.col('SOURCE_PK')), 'left')
+    df = df.join(wpa, ['EVENT_PERFNO_I'], 'left')
+    df = df.join(a, ['AC_REGISTR'], 'inner')
+    df = df.join(p, df.PARTNO_ON == p.PARTNO, 'left').drop(F.col('PARTNO')).alias('dfm')
+    df = df.join(r_on, F.concat(r_on.R_ON_PARTNO, r_on.R_ON_SERIALNO) == F.concat(df.PARTNO_ON, df.SERIALNO_ON), 'left')
+    df = df.join(r_off, F.concat(r_off.R_OFF_PARTNO, r_off.R_OFF_SERIALNO) == F.concat(df.PARTNO_OFF, df.SERIALNO_OFF), 'left')
+    mro = org_approval.join(address, org_approval.MAIN_ADDRESS_I == address.ADDRESS_I, 'inner').distinct()
+    df = df.join(mro, ['APPROVALNO_I'],'left')
+    tq = tq.join(tqa, ['QUERYNO_I'], 'inner')
+    tq = (tq.groupby('EVENT_PERFNO_I').agg(F.collect_set('QUERYNO_I').alias('OPEN_QUERY'), F.collect_set('ASSIGNED_TO_GROUP').alias('GROUP_ASSIGNED'),
+    F.collect_set('ASSIGNED_TO').alias('USER_ASSIGNED')) )
+    df = df.join(tq, ['EVENT_PERFNO_I'], 'left')
+    df = df.join(air, F.concat(df.PARTNO_OFF, df.SERIALNO_OFF) == F.concat(air.AIR_PARTNO, air.AIR_SERIALNO), 'left')
+    df = df.join(h, F.concat(df.PARTNO_OFF, df.SERIALNO_OFF) == F.concat(h.PARTNO,h.SERIALNO), 'left')
+    df = df.withColumn('ref_date', F.when(F.col('DEL_DATE').isNotNull(),F.lit('1971-12-31')))
+    df = df.withColumn('DEL_DATE', F.col('DEL_DATE').cast('integer'))
+    df = df.withColumn('DEL_DATE', F.expr("date_add(ref_date, DEL_DATE)"))
+    #Operations
+    
+    
+    
+    df = df.withColumn('COMP_ON_LOC', F.when(F.col('PARTNO_ON').isNull(), F.lit('REMOVAL ONLY')).when((F.col('R_ON_LOCATIONNO_I') == -1) & (F.col('R_ON_AC_REGISTR') != F.col('AC_REGISTR')),
+    F.concat(F.lit('ON INSTALLED ON '), F.col('R_ON_AC_REGISTR') )  ).when((F.col('R_ON_LOCATIONNO_I') == -1) & (F.col('R_ON_AC_REGISTR') == F.col('AC_REGISTR')),
+    F.lit('ON ALREADY INSTALLED')   ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_ON_ROTABLE_STATUS') != 0 ), 
+    F.lit('PEND. COMP. INSP RECORDS') ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_ON_ROTABLE_STATUS') == 0 ) & 
+    (F.col('R_ON_DEL_DATE') > F.col('ACTION_DATE')), 
+    F.lit('CHECK COUNTERS') ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_ON_ROTABLE_STATUS') == 0 ) & 
+    (F.col('R_ON_DEL_DATE') <= F.col('ACTION_DATE')), 
+    F.concat(F.lit('ON CORRECTLY IN STOCK, COND: '),F.col('R_ON_CONDITION')) ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') == 'US'), 
+    F.lit('ON IS U/S IN STOCK') ).when((F.col('R_ON_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNotNull()) , F.concat(F.lit('ON OUT OF AMOS SINCE : '), 
+    F.col('DEL_DATE'))).when((F.col('R_ON_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNull()) , F.lit('ON NEVER IN AMOS') )
+   
+     
+     )
+
+    df = df.withColumn('LABEL', F.when(F.col('PARTNO_ON').isNull(), F.lit('REMOVAL ONLY')).when(F.col('PARTNO_OFF').isNull(), F.lit('INSTALLATION ONLY')).when(F.col('LABELNO').isNull(), F.lit('PENDING')).when(F.col('LABELNO').isNotNull(), F.lit('BOOKED'))
+    )
+
+    df = df.withColumn('FIN_MATCH', F.when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_ON_LOCATIONNO_I')
+    > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_OFF_LOCATION') == F.col('AC_POSITION')), F.lit('CORRECT MATCH')).when((F.col('R_OFF_LOCATIONNO_I') == -1) & 
+    (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_ON_LOCATIONNO_I')
+    > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_OFF_LOCATION') != F.col('AC_POSITION')), F.lit('CHECK POSITION')).when((F.col('R_OFF_LOCATIONNO_I') > -1) 
+    & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_OFF_LOCATION') != F.col('AC_POSITION')), F.lit('LB NOT POSSIBLE')).otherwise(F.lit('LB NOT POSSIBLE'))
+
+    )
+
+    df = df.withColumn('COMP_OFF_LOC',F.when(F.col('PARTNO_OFF').isNull(), F.lit('INSTALLATION ONLY')).when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') != F.col('AC_REGISTR')), 
+    F.concat(F.lit('OFF INSTALLED ON '),F.col('R_OFF_AC_REGISTR')) ).when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_OFF_DATE_INST') > F.col('ACTION_DATE')), 
+    F.lit('CHECK COUNTERS')).when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & 
+    (F.col('R_OFF_DATE_INST') <= F.col('ACTION_DATE')), F.lit('Off Correctly Installed')).when((F.col('R_OFF_LOCATIONNO_I') > -1) & 
+    (F.col('R_OFF_DEL_DATE') <= F.col('CLOSING_DATE')) , F.concat(F.lit('In Sock, Condition: '),F.col('R_OFF_CONDITION'))).when((F.col('R_OFF_LOCATIONNO_I') > -1)
+     & (F.col('R_OFF_DEL_DATE') > F.col('CLOSING_DATE')) , F.lit('LABELBOOKING SUPERSEDED')).when((F.col('R_OFF_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNotNull() ), 
+    F.concat(F.lit('OFF OUT OF AMOS SINCE : '), F.col('DEL_DATE')) ).when((F.col('R_OFF_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNull() ) & (F.col('AIR_AC_REGISTR') == F.col('AC_REGISTR')), 
+    F.concat(F.lit('OFF IN AIR IN FIN: '), F.col('AIR_FIN')) ).otherwise('OFF NEVER IN AMOS/AIR')
+
+
+    )
+    pending_labelbooking = df.select(['AC_REGISTR','ACTION_DATE','ATA','EVENT_PERFNO_I','DESCRIPTION','PARTNO_ON','SERIALNO_ON','COMP_ON_LOC', 'LABEL',
+    'AC_POSITION', 'FIN_MATCH','PARTNO_OFF','SERIALNO_OFF','COMP_OFF_LOC','CLOSING_DATE','TLB','WPNO_I', 'STA','MRO',
+    'OPEN_QUERY','GROUP_ASSIGNED','USER_ASSIGNED','AIR_AC_REGISTR','AIR_PARTNO','AIR_SERIALNO','AIR_FIN','PARTNO','SERIALNO','DEL_DATE']).where(F.col('LABEL') == 'PENDING').distinct().orderBy('ACTION_DATE')
+
+
+    
+    return pending_labelbooking
