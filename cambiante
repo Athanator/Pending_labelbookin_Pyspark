@@ -106,7 +106,9 @@ org_approval, air, history):
     F.lit('PEND. COMP. INSP RECORDS') ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_ON_ROTABLE_STATUS') == 0 ) & 
     (F.col('R_ON_DEL_DATE') > F.col('ACTION_DATE')), 
     F.lit('CHECK COUNTERS') ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_ON_ROTABLE_STATUS') == 0 ) & 
-    (F.col('R_ON_DEL_DATE') <= F.col('ACTION_DATE')), 
+    (F.col('R_ON_DEL_DATE') <= F.col('ACTION_DATE')) & (F.col('R_ON_LOCATION') == 'TRANSFER') , 
+    F.concat(F.lit('ON IN TRANSFER, COND: '),F.col('R_ON_CONDITION')) ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_ON_ROTABLE_STATUS') == 0 ) & 
+    (F.col('R_ON_DEL_DATE') <= F.col('ACTION_DATE')) & (F.col('R_ON_LOCATION') != 'TRANSFER'), 
     F.concat(F.lit('ON CORRECTLY IN STOCK, COND: '),F.col('R_ON_CONDITION')) ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') == 'US'), 
     F.lit('ON IS U/S IN STOCK') ).when((F.col('R_ON_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNotNull()) , F.concat(F.lit('ON OUT OF AMOS SINCE : '), 
     F.col('DEL_DATE'))).when((F.col('R_ON_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNull()) , F.lit('ON NEVER IN AMOS') )
