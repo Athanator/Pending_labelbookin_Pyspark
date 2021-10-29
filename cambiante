@@ -95,7 +95,7 @@ org_approval, air, history):
 
     #r_inst filters before join
 
-    r_inst_cond = ((r_inst.R_INST_PARTNO.isin(df.PARTNO_ON, df.PARTNO_OFF)) & (r_inst.R_INST_LOCATION == df.AC_POSITION) & (r_inst.R_INST_AC_REGISTR == df.AC_REGISTR) & (r_inst.R_INST_DATE_INST > df.CLOSING_DATE))
+    r_inst_cond = ( (r_inst.R_INST_LOCATION == df.AC_POSITION) & (r_inst.R_INST_AC_REGISTR == df.AC_REGISTR) & (r_inst.R_INST_DATE_INST > df.CLOSING_DATE))
 
     df = df.join(r_inst, r_inst_cond , 'left')
     mro = org_approval.join(address, org_approval.MAIN_ADDRESS_I == address.ADDRESS_I, 'inner').distinct()
