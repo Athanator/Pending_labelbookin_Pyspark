@@ -60,6 +60,15 @@ org_approval, air, history):
     'LOCATION AS R_OFF_LOCATION','PSN AS R_OFF_PSN','LOCATIONNO_I AS R_OFF_LOCATIONNO_I','CONDITION AS R_OFF_CONDITION',
     'ROTABLE_STATUS AS R_OFF_ROTABLE_STATUS',    'DEL_DATE AS R_OFF_DEL_DATE')
 
+    r_inst = rotables.selectExpr('AC_REGISTR as R_INST_AC_REGISTR','PARTNO AS R_INST_PARTNO','SERIALNO AS R_INST_SERIALNO','DATE_INST AS R_INST_DATE_INST',
+    'LOCATION AS R_INST_LOCATION','PSN AS R_INST_PSN','LOCATIONNO_I AS R_INST_LOCATIONNO_I','CONDITION AS R_INST_CONDITION',
+    'ROTABLE_STATUS AS R_INST_ROTABLE_STATUS',    'DEL_DATE AS R_INST_DEL_DATE')
+
+    
+
+
+
+
     address = address.select(['ADDRESS_I','VENDOR','NAME']).distinct()
     address = address.withColumnRenamed('VENDOR','MRO')
     org_approval = org_approval.select(['APPROVALNO_I','MAIN_ADDRESS_I']).distinct()
@@ -83,6 +92,12 @@ org_approval, air, history):
     df = df.join(p, df.PARTNO_ON == p.PARTNO, 'left').drop(F.col('PARTNO')).alias('dfm')
     df = df.join(r_on, F.concat(r_on.R_ON_PARTNO, r_on.R_ON_SERIALNO) == F.concat(df.PARTNO_ON, df.SERIALNO_ON), 'left')
     df = df.join(r_off, F.concat(r_off.R_OFF_PARTNO, r_off.R_OFF_SERIALNO) == F.concat(df.PARTNO_OFF, df.SERIALNO_OFF), 'left')
+
+    #r_inst filters before join
+
+    r_inst_cond = ((r_inst.R_INST_PARTNO.isin(df.PARTNO_ON, df.PARTNO_OFF)) & (r_inst.R_INST_LOCATION == df.AC_POSITION) & (r_inst.R_INST_AC_REGISTR == df.AC_REGISTR) & (r_inst.R_INST_DATE_INST > df.CLOSING_DATE))
+
+    df = df.join(r_inst, r_inst_cond , 'left')
     mro = org_approval.join(address, org_approval.MAIN_ADDRESS_I == address.ADDRESS_I, 'inner').distinct()
     df = df.join(mro, ['APPROVALNO_I'],'left')
     tq = tq.join(tqa, ['QUERYNO_I'], 'inner')
@@ -98,8 +113,7 @@ org_approval, air, history):
     
     
     
-    df = df.withColumn('COMP_ON_LOC', F.when(F.col('PARTNO_ON').isNull(), F.lit('REMOVAL ONLY')).when((F.col('R_OFF_LOCATION') == 
-    F.col('AC_POSITION')) & (F.col('R_OFF_DATE_INST') > F.col('CLOSING_DATE')),
+    df = df.withColumn('COMP_ON_LOC', F.when(F.col('PARTNO_ON').isNull(), F.lit('REMOVAL ONLY')).when(F.col('R_INST_PARTNO').isNotNull(),
     F.lit('LABEL SUPERSEDED') ).when((F.col('R_ON_LOCATIONNO_I') == -1) & (F.col('R_ON_AC_REGISTR') != F.col('AC_REGISTR')),
     F.concat(F.lit('ON INSTALLED ON '), F.col('R_ON_AC_REGISTR') )  ).when((F.col('R_ON_LOCATIONNO_I') == -1) & (F.col('R_ON_AC_REGISTR') == F.col('AC_REGISTR')),
     F.lit('ON ALREADY INSTALLED')   ).when((F.col('R_ON_LOCATIONNO_I') > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_ON_ROTABLE_STATUS') != 0 ), 
@@ -119,7 +133,8 @@ org_approval, air, history):
     df = df.withColumn('LABEL', F.when(F.col('LABELNO').isNull(), F.lit('PENDING')).when(F.col('LABELNO').isNotNull(), F.lit('BOOKED'))
     )
 
-    df = df.withColumn('FIN_MATCH', F.when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_ON_LOCATIONNO_I')
+    df = df.withColumn('FIN_MATCH', F.when(F.col('PARTNO_ON').isNull(), F.lit('REMOVAL ONLY')).when(F.col('PARTNO_OFF').isNull(), F.lit('INSTALLATION ONLY')).when(F.col('R_INST_PARTNO').isNotNull(),
+    F.lit('LABEL SUPERSEDED') ).when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_ON_LOCATIONNO_I')
     > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_OFF_LOCATION') == F.col('AC_POSITION')), F.lit('CORRECT MATCH')).when((F.col('R_OFF_LOCATIONNO_I') == -1) & 
     (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_ON_LOCATIONNO_I')
     > -1) & (F.col('R_ON_CONDITION') != 'US') & (F.col('R_OFF_LOCATION') != F.col('AC_POSITION')), F.lit('CHECK POSITION')).when((F.col('R_OFF_LOCATIONNO_I') > -1) 
@@ -127,11 +142,11 @@ org_approval, air, history):
 
     )
 
-    df = df.withColumn('COMP_OFF_LOC',F.when(F.col('PARTNO_OFF').isNull(), F.lit('INSTALLATION ONLY')).when((F.col('R_OFF_LOCATION') == F.col('AC_POSITION')) & (F.col('R_OFF_DATE_INST') > F.col('CLOSING_DATE')),
+    df = df.withColumn('COMP_OFF_LOC',F.when(F.col('PARTNO_OFF').isNull(), F.lit('INSTALLATION ONLY')).when(F.col('R_INST_PARTNO').isNotNull(),
     F.lit('LABEL SUPERSEDED') ).when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') != F.col('AC_REGISTR')), 
     F.concat(F.lit('OFF INSTALLED ON '),F.col('R_OFF_AC_REGISTR')) ).when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & (F.col('R_OFF_DATE_INST') > F.col('ACTION_DATE')), 
     F.lit('CHECK COUNTERS')).when((F.col('R_OFF_LOCATIONNO_I') == -1) & (F.col('R_OFF_AC_REGISTR') == F.col('AC_REGISTR')) & 
-    (F.col('R_OFF_DATE_INST') <= F.col('ACTION_DATE')), F.lit('Off Correctly Installed')).when((F.col('R_OFF_LOCATIONNO_I') > -1) & 
+    (F.col('R_OFF_DATE_INST') <= F.col('ACTION_DATE')), F.lit('OFF CORRECTLY INSTALLED')).when((F.col('R_OFF_LOCATIONNO_I') > -1) & 
     (F.col('R_OFF_DEL_DATE') <= F.col('CLOSING_DATE')) , F.concat(F.lit('In Sock, Condition: '),F.col('R_OFF_CONDITION'))).when((F.col('R_OFF_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNotNull() ), 
     F.concat(F.lit('OFF OUT OF AMOS SINCE : '), F.col('DEL_DATE')) ).when((F.col('R_OFF_LOCATIONNO_I').isNull()) & (F.col('DEL_DATE').isNull() ) & (F.col('AIR_AC_REGISTR') == F.col('AC_REGISTR')), 
     F.concat(F.lit('OFF IN AIR IN FIN: '), F.col('AIR_FIN')) ).otherwise('OFF NEVER IN AMOS/AIR')
